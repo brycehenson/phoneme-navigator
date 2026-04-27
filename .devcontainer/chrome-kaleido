@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+exec /usr/bin/chromium \
+  --headless \
+  --disable-gpu \
+  --no-sandbox \
+  --disable-dev-shm-usage \
+  "$@"

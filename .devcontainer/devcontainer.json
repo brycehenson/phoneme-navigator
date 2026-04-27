@@ -1,0 +1,48 @@
+{
+  "name": "phoneme-navigator",
+  "build": {
+    "dockerfile": "Dockerfile",
+    "context": ".."
+  },
+  "runArgs": [
+    "--add-host=host.docker.internal:host-gateway"
+  ],
+  "mounts": [
+    "source=${localEnv:HOME}/.codex,target=/home/vscode/.codex,type=bind,consistency=cached",
+    "source=${localEnv:HOME}/.cache/uv,target=/home/vscode/.cache/uv,type=bind,consistency=cached"
+  ],
+  "postCreateCommand": "bash .devcontainer/post-create.sh",
+  "customizations": {
+    "vscode": {
+      "settings": {
+        "python.defaultInterpreterPath": "/usr/bin/python3",
+        "python.globalModuleInstallation": true
+      },
+      "extensions": [
+        "ms-python.python",
+        "ms-toolsai.jupyter",
+        "openai.chatgpt",
+        "ms-python.vscode-pylance",
+        "yzhang.markdown-all-in-one",
+        "streetsidesoftware.code-spell-checker",
+        "vscode-icons-team.vscode-icons",
+        "mhutchie.git-graph",
+        "njpwerner.autodocstring",
+        "Gruntfuggly.todo-tree",
+        "dnut.rewrap-revived",
+        "ms-vsliveshare.vsliveshare",
+        "ryanluker.vscode-coverage-gutters"
+      ]
+    }
+  },
+  "forwardPorts": [
+    5173,
+    8000,
+    8880,
+    8888
+  ],
+  "remoteUser": "vscode",
+  "containerEnv": {
+    "WorkspaceFolder": "${containerWorkspaceFolder}"
+  }
+}
