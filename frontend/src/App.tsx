@@ -151,7 +151,6 @@ const editableKinds = new Set<PhonemeToken["token_kind"]>([
 ]);
 
 const phonemeBoxFallbackSizePx = 48;
-const trashDropZoneMaxWidthPx = 82;
 const workspacePaddingPx = 18;
 
 const stressableKinds = new Set<PhonemeToken["token_kind"]>([
@@ -1448,33 +1447,48 @@ export default function App() {
 
       const workspaceRect = workspaceNode.getBoundingClientRect();
       const tokenStripRect = tokenStripNode.getBoundingClientRect();
-      const tokenNode = tokenStripNode.querySelector<HTMLElement>(".token");
-      const tokenRect = tokenNode?.getBoundingClientRect();
+      const tokenRects = Array.from(
+        tokenStripNode.querySelectorAll<HTMLElement>(".token, .add-token-button")
+      ).map((node) => node.getBoundingClientRect());
+      const tokenRect = tokenRects[0];
       const phonemeBoxWidth = tokenRect?.width ?? phonemeBoxFallbackSizePx;
       const phonemeBoxHeight = tokenRect?.height ?? phonemeBoxFallbackSizePx;
-      const zoneWidth = Math.min(trashDropZoneMaxWidthPx, workspaceRect.width * 0.14);
+      const contentLeft =
+        tokenRects.length > 0
+          ? Math.min(...tokenRects.map((rect) => rect.left))
+          : tokenStripRect.left;
+      const contentRight =
+        tokenRects.length > 0
+          ? Math.max(...tokenRects.map((rect) => rect.right))
+          : tokenStripRect.right;
       const zoneHeight = phonemeBoxHeight * 2;
       const zoneGap = phonemeBoxWidth * 1.5;
       const minLeft = workspacePaddingPx;
-      const maxLeft = Math.max(minLeft, workspaceRect.width - zoneWidth - workspacePaddingPx);
+      const maxRight = workspaceRect.width - workspacePaddingPx;
+      const leftZoneRight = Math.max(
+        minLeft + phonemeBoxWidth,
+        contentLeft - workspaceRect.left - zoneGap
+      );
+      const rightZoneLeft = Math.min(
+        maxRight - phonemeBoxWidth,
+        contentRight - workspaceRect.left + zoneGap
+      );
       const top = Math.max(
         workspacePaddingPx,
         tokenStripRect.top - workspaceRect.top
       );
-      const clampLeft = (leftPx: number) =>
-        Math.min(Math.max(leftPx, minLeft), maxLeft);
 
       setTrashDropZoneStyles({
         left: {
           top,
-          left: clampLeft(tokenStripRect.left - workspaceRect.left - zoneGap - zoneWidth),
-          width: zoneWidth,
+          left: minLeft,
+          width: leftZoneRight - minLeft,
           height: zoneHeight
         },
         right: {
           top,
-          left: clampLeft(tokenStripRect.right - workspaceRect.left + zoneGap),
-          width: zoneWidth,
+          left: rightZoneLeft,
+          width: maxRight - rightZoneLeft,
           height: zoneHeight
         }
       });
@@ -1519,6 +1533,8 @@ export default function App() {
       setHistory([]);
       if (shouldSpeak) {
         await speakPhonemes(payload.phonemes);
+      } else {
+        setLastSpeechRequest({ phonemes: payload.phonemes, voice, speed: 1.0 });
       }
       lastConvertedKey.current = conversionKey;
     } catch (caughtError) {
@@ -1571,12 +1587,12 @@ export default function App() {
       }
       const nextAudioUrl = URL.createObjectURL(blob);
       setAudioUrl(nextAudioUrl);
+      setLastSpeechRequest(speechRequest);
       if (audioRef.current) {
         audioRef.current.src = nextAudioUrl;
         audioRef.current.load();
         await audioRef.current.play();
       }
-      setLastSpeechRequest(speechRequest);
     } catch (caughtError) {
       setError(
         caughtError instanceof Error
@@ -2505,7 +2521,12 @@ export default function App() {
         <span>Drag to change order.</span>
         <span>Click marks above a phoneme for stress or vowel length.</span>
         <span>Use arrows or WASD to move on the map.</span>
-        <span>Use Q/E for previous or next phoneme, X for stress, C for length, R to remove, space to replay, z to undo.</span>
+        <span>Use Q/E for previous or next phoneme</span> 
+        <span>X for ph. stress</span> 
+        <span>C for ph. length</span> 
+        <span>R to remove ph.</span> 
+        <span>z to undo</span> 
+        <span> space to replay</span> 
       </footer>
     </main>
   );
