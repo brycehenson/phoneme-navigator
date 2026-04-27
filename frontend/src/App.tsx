@@ -1659,10 +1659,6 @@ function infoForProjectionOption(option: ProjectionOption): PhonemeInfo {
   );
 }
 
-function tooltipForPhoneme(info: PhonemeInfo): string {
-  return [info.name, info.description, ...info.examples].join(". ");
-}
-
 function formatVoiceLabel(voiceId: string): string {
   const voiceParts = voiceId.split("_");
   const voiceName = voiceParts[voiceParts.length - 1] ?? voiceId;
@@ -3051,7 +3047,6 @@ export default function App() {
                         .filter(Boolean)
                         .join(" ")}
                       style={{ left: `${option.x}%`, top: `${option.y}%` }}
-                      title={tooltipForPhoneme(optionInfo)}
                       aria-label={`${option.symbol}, ${optionInfo.name}`}
                       disabled={isSelected}
                       ref={(node) => setMapNodeRef(`projection-${option.symbol}`, node)}

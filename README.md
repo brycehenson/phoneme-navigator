@@ -267,3 +267,7 @@ The two routes that define the main editing loop are:
 - check github pytest is working
 - add link to github repo at the top of the web ui
 - details of options in the web ui
+- dev setup
+- protect main branch on github
+- add point that pulling images takes about 2GB
+- make point in readme good to learn IPA but not perfect because TTS model has its own quirks
