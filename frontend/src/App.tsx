@@ -103,13 +103,17 @@ type ProjectionOption = {
 type PositionedProjectionOption = ProjectionOption & {
   x: number;
   y: number;
+  isSelected: boolean;
 };
 
 type ProjectionGuide = {
   id: string;
   label: string;
   angleDeg: number;
-  length: number;
+  displayAngleDeg: number;
+  isFlipped: boolean;
+  edgeX: number;
+  edgeY: number;
 };
 
 type KeyboardConnection = {
@@ -122,6 +126,23 @@ type KeyboardConnection = {
   y2: number;
   midpointX: number;
   midpointY: number;
+};
+
+type ProjectionNeighbourConnection = {
+  id: string;
+  x1: number;
+  y1: number;
+  x2: number;
+  y2: number;
+};
+
+type AnimatedConnectionLineProps = {
+  className: string;
+  x1: number;
+  y1: number;
+  x2: number;
+  y2: number;
+  endpointPadding?: number;
 };
 
 type PhonemeInfo = {
@@ -152,6 +173,9 @@ const editableKinds = new Set<PhonemeToken["token_kind"]>([
 
 const phonemeBoxFallbackSizePx = 48;
 const workspacePaddingPx = 18;
+const mapAnimationDurationMs = 364;
+const mapAnimationEasing = "cubic-bezier(0.22, 1, 0.36, 1)";
+const maxProjectionAnimationDistancePx = 360;
 
 const stressableKinds = new Set<PhonemeToken["token_kind"]>([
   "vowel",
@@ -169,6 +193,76 @@ const languageOptions: LanguageOption[] = [
   { value: "p", label: "Brazilian Portuguese" },
   { value: "z", label: "Mandarin Chinese" }
 ];
+
+const englishConsonantPhonemes = [
+  "p",
+  "b",
+  "t",
+  "d",
+  "k",
+  "g",
+  "tʃ",
+  "dʒ",
+  "f",
+  "v",
+  "θ",
+  "ð",
+  "s",
+  "z",
+  "ʃ",
+  "ʒ",
+  "h",
+  "m",
+  "n",
+  "ŋ",
+  "l",
+  "r",
+  "j",
+  "w"
+];
+
+const languagePhonemeInventories: Partial<Record<string, ReadonlySet<string>>> = {
+  a: new Set([
+    ...englishConsonantPhonemes,
+    "i",
+    "ɪ",
+    "u",
+    "ʊ",
+    "eɪ",
+    "ɛ",
+    "ə",
+    "ɚ",
+    "ɝ",
+    "ʌ",
+    "æ",
+    "ɑ",
+    "ɔ",
+    "oʊ",
+    "aɪ",
+    "aʊ",
+    "ɔɪ"
+  ]),
+  b: new Set([
+    ...englishConsonantPhonemes,
+    "i",
+    "ɪ",
+    "u",
+    "ʊ",
+    "e",
+    "ə",
+    "ɜ",
+    "ʌ",
+    "ɒ",
+    "æ",
+    "ɑ",
+    "ɔ",
+    "eɪ",
+    "oʊ",
+    "aɪ",
+    "aʊ",
+    "ɔɪ"
+  ])
+};
 
 const starterWords = [
   "rough",
@@ -196,17 +290,25 @@ const keyboardDirectionLabels: Partial<Record<Direction, string>> = {
 
 const vowelProjection: ProjectionOption[] = [
   { symbol: "i", label: "close front", tokenKind: "vowel", featureX: 16, featureY: 15 },
+  { symbol: "y", label: "close front rounded", tokenKind: "vowel", featureX: 21, featureY: 15 },
   { symbol: "ɪ", label: "near-close front", tokenKind: "vowel", featureX: 28, featureY: 25 },
   { symbol: "ɨ", label: "close central", tokenKind: "vowel", featureX: 50, featureY: 15 },
+  { symbol: "ɯ", label: "close back unrounded", tokenKind: "vowel", featureX: 79, featureY: 15 },
   { symbol: "u", label: "close back rounded", tokenKind: "vowel", featureX: 84, featureY: 15 },
   { symbol: "ʊ", label: "near-close back", tokenKind: "vowel", featureX: 74, featureY: 27 },
   { symbol: "e", label: "close-mid front", tokenKind: "vowel", featureX: 23, featureY: 37 },
+  { symbol: "ø", label: "close-mid front rounded", tokenKind: "vowel", featureX: 28, featureY: 37 },
+  { symbol: "ɵ", label: "close-mid central rounded", tokenKind: "vowel", featureX: 50, featureY: 37 },
+  { symbol: "ɤ", label: "close-mid back unrounded", tokenKind: "vowel", featureX: 68, featureY: 37 },
+  { symbol: "o", label: "close-mid back rounded", tokenKind: "vowel", featureX: 76, featureY: 37 },
   { symbol: "eɪ", label: "front closing diphthong", tokenKind: "vowel", featureX: 36, featureY: 37 },
   { symbol: "ɜ", label: "open-mid central", tokenKind: "vowel", featureX: 50, featureY: 45 },
   { symbol: "ɝ", label: "r-coloured central", tokenKind: "vowel", featureX: 58, featureY: 43 },
   { symbol: "oʊ", label: "back closing diphthong", tokenKind: "vowel", featureX: 69, featureY: 38 },
   { symbol: "ɔ", label: "open-mid back rounded", tokenKind: "vowel", featureX: 79, featureY: 48 },
   { symbol: "ɛ", label: "open-mid front", tokenKind: "vowel", featureX: 28, featureY: 55 },
+  { symbol: "œ", label: "open-mid front rounded", tokenKind: "vowel", featureX: 33, featureY: 55 },
+  { symbol: "ɞ", label: "open-mid central rounded", tokenKind: "vowel", featureX: 55, featureY: 55 },
   { symbol: "ə", label: "schwa", tokenKind: "vowel", featureX: 50, featureY: 58 },
   { symbol: "ɚ", label: "r-coloured schwa", tokenKind: "vowel", featureX: 60, featureY: 58 },
   { symbol: "ʌ", label: "strut vowel", tokenKind: "vowel", featureX: 62, featureY: 66 },
@@ -214,10 +316,53 @@ const vowelProjection: ProjectionOption[] = [
   { symbol: "æ", label: "near-open front", tokenKind: "vowel", featureX: 30, featureY: 77 },
   { symbol: "ɐ", label: "near-open central", tokenKind: "vowel", featureX: 51, featureY: 80 },
   { symbol: "a", label: "open front", tokenKind: "vowel", featureX: 36, featureY: 88 },
+  { symbol: "ɶ", label: "open front rounded", tokenKind: "vowel", featureX: 41, featureY: 88 },
   { symbol: "ɑ", label: "open back", tokenKind: "vowel", featureX: 68, featureY: 88 },
   { symbol: "aɪ", label: "price diphthong", tokenKind: "vowel", featureX: 21, featureY: 88 },
   { symbol: "aʊ", label: "mouth diphthong", tokenKind: "vowel", featureX: 82, featureY: 88 },
   { symbol: "ɔɪ", label: "choice diphthong", tokenKind: "vowel", featureX: 87, featureY: 61 }
+];
+
+const vowelNeighbourPairs: [string, string][] = [
+  ["i", "ɪ"],
+  ["i", "y"],
+  ["y", "ɨ"],
+  ["ɪ", "e"],
+  ["ɨ", "ɯ"],
+  ["ɯ", "u"],
+  ["u", "ʊ"],
+  ["e", "ɛ"],
+  ["e", "ø"],
+  ["ø", "ə"],
+  ["e", "eɪ"],
+  ["eɪ", "ɜ"],
+  ["ɜ", "ə"],
+  ["ɜ", "ɞ"],
+  ["ɜ", "oʊ"],
+  ["ə", "ɵ"],
+  ["ɵ", "ɤ"],
+  ["ɤ", "o"],
+  ["ɤ", "ʊ"],
+  ["oʊ", "ɔ"],
+  ["ʊ", "oʊ"],
+  ["ɛ", "æ"],
+  ["ɛ", "œ"],
+  ["œ", "ɜ"],
+  ["ɛ", "ə"],
+  ["ə", "ɚ"],
+  ["ə", "ɐ"],
+  ["ɚ", "ʌ"],
+  ["ɞ", "ʌ"],
+  ["ʌ", "ɑ"],
+  ["ɔ", "ɒ"],
+  ["ɒ", "ɑ"],
+  ["æ", "a"],
+  ["ɐ", "a"],
+  ["a", "ɶ"],
+  ["ɶ", "ɑ"],
+  ["ɐ", "ɑ"],
+  ["ɑ", "aʊ"],
+  ["ɔ", "ɔɪ"]
 ];
 
 const consonantProjection: ProjectionOption[] = [
@@ -249,21 +394,191 @@ const consonantProjection: ProjectionOption[] = [
   { symbol: "h", label: "glottal fricative", tokenKind: "consonant", featureX: 92, featureY: 61 }
 ];
 
+const consonantNeighbourPairs: [string, string][] = [
+  ["p", "b"],
+  ["t", "d"],
+  ["k", "g"],
+  ["f", "v"],
+  ["θ", "ð"],
+  ["s", "z"],
+  ["ʃ", "ʒ"],
+  ["tʃ", "dʒ"],
+  ["x", "ɣ"],
+  ["p", "m"],
+  ["b", "m"],
+  ["t", "n"],
+  ["d", "n"],
+  ["k", "ŋ"],
+  ["g", "ŋ"],
+  ["f", "θ"],
+  ["v", "ð"],
+  ["θ", "s"],
+  ["ð", "z"],
+  ["s", "ʃ"],
+  ["z", "ʒ"],
+  ["ʃ", "x"],
+  ["ʒ", "ɣ"],
+  ["p", "t"],
+  ["b", "d"],
+  ["t", "k"],
+  ["d", "g"],
+  ["m", "n"],
+  ["n", "ŋ"],
+  ["tʃ", "ʃ"],
+  ["dʒ", "ʒ"],
+  ["l", "r"],
+  ["r", "j"],
+  ["j", "w"],
+  ["x", "h"]
+];
+
+const americanEnglishVowelNeighbourPairs: [string, string][] = [
+  ["i", "ɪ"],
+  ["i", "eɪ"],
+  ["ɪ", "ɛ"],
+  ["eɪ", "ɛ"],
+  ["ɛ", "æ"],
+  ["æ", "aɪ"],
+  ["æ", "ɑ"],
+  ["ɑ", "ʌ"],
+  ["ʌ", "ə"],
+  ["ə", "ɚ"],
+  ["ɚ", "ɝ"],
+  ["ɝ", "ɔ"],
+  ["ɔ", "oʊ"],
+  ["oʊ", "u"],
+  ["u", "ʊ"],
+  ["ʊ", "oʊ"],
+  ["ɔ", "ɔɪ"],
+  ["ɔɪ", "aʊ"],
+  ["ɑ", "aʊ"],
+  ["aɪ", "aʊ"]
+];
+
+const britishEnglishVowelNeighbourPairs: [string, string][] = [
+  ["i", "ɪ"],
+  ["i", "eɪ"],
+  ["ɪ", "e"],
+  ["eɪ", "e"],
+  ["e", "æ"],
+  ["æ", "aɪ"],
+  ["æ", "ɑ"],
+  ["ɑ", "ʌ"],
+  ["ʌ", "ə"],
+  ["ə", "ɜ"],
+  ["ɜ", "ɔ"],
+  ["ɔ", "oʊ"],
+  ["ɔ", "ɒ"],
+  ["ɒ", "ɑ"],
+  ["oʊ", "u"],
+  ["u", "ʊ"],
+  ["ʊ", "oʊ"],
+  ["ɔ", "ɔɪ"],
+  ["ɔɪ", "aʊ"],
+  ["ɑ", "aʊ"],
+  ["aɪ", "aʊ"]
+];
+
+const englishConsonantNeighbourPairs: [string, string][] = [
+  ["p", "b"],
+  ["t", "d"],
+  ["k", "g"],
+  ["f", "v"],
+  ["θ", "ð"],
+  ["s", "z"],
+  ["ʃ", "ʒ"],
+  ["tʃ", "dʒ"],
+  ["p", "m"],
+  ["b", "m"],
+  ["t", "n"],
+  ["d", "n"],
+  ["k", "ŋ"],
+  ["g", "ŋ"],
+  ["f", "θ"],
+  ["v", "ð"],
+  ["θ", "s"],
+  ["ð", "z"],
+  ["s", "ʃ"],
+  ["z", "ʒ"],
+  ["p", "t"],
+  ["b", "d"],
+  ["t", "k"],
+  ["d", "g"],
+  ["m", "n"],
+  ["n", "ŋ"],
+  ["tʃ", "ʃ"],
+  ["dʒ", "ʒ"],
+  ["l", "r"],
+  ["r", "j"],
+  ["j", "w"]
+];
+
+const languageNeighbourPairs: Partial<
+  Record<
+    string,
+    Partial<Record<ProjectionOption["tokenKind"], [string, string][]>>
+  >
+> = {
+  a: {
+    vowel: americanEnglishVowelNeighbourPairs,
+    consonant: englishConsonantNeighbourPairs
+  },
+  b: {
+    vowel: britishEnglishVowelNeighbourPairs,
+    consonant: englishConsonantNeighbourPairs
+  }
+};
+
 const phonemeInfo: Record<string, PhonemeInfo> = {
   i: {
     name: "close front vowel",
     description: "A high, front vowel with the tongue close to the roof of the mouth.",
     examples: ["like EE in fleece", "like the vowel in see"]
   },
+  y: {
+    name: "close front rounded vowel",
+    description: "A high front vowel made with rounded lips.",
+    examples: ["like French U in tu", "symbol: y"]
+  },
   "ɪ": {
     name: "near-close front vowel",
     description: "A short, relaxed front vowel.",
     examples: ["like I in kit", "like the vowel in sit"]
   },
+  "ɨ": {
+    name: "close central vowel",
+    description: "A high central vowel made between the front and back of the mouth.",
+    examples: ["symbol: ɨ"]
+  },
+  "ɯ": {
+    name: "close back unrounded vowel",
+    description: "A high back vowel made without lip rounding.",
+    examples: ["symbol: ɯ"]
+  },
   e: {
     name: "close-mid front vowel",
     description: "A tense front vowel between /i/ and /ɛ/.",
     examples: ["like the first part of AY in face"]
+  },
+  "ø": {
+    name: "close-mid front rounded vowel",
+    description: "A close-mid front vowel made with rounded lips.",
+    examples: ["like French EU in deux", "symbol: ø"]
+  },
+  "ɵ": {
+    name: "close-mid central rounded vowel",
+    description: "A close-mid central vowel made with rounded lips.",
+    examples: ["symbol: ɵ"]
+  },
+  "ɤ": {
+    name: "close-mid back unrounded vowel",
+    description: "A close-mid back vowel made without lip rounding.",
+    examples: ["symbol: ɤ"]
+  },
+  o: {
+    name: "close-mid back rounded vowel",
+    description: "A close-mid back vowel made with rounded lips.",
+    examples: ["like pure O in many languages", "symbol: o"]
   },
   "eɪ": {
     name: "face diphthong",
@@ -275,10 +590,25 @@ const phonemeInfo: Record<string, PhonemeInfo> = {
     description: "A front vowel more open than /e/.",
     examples: ["like E in dress", "like the vowel in bed"]
   },
+  "œ": {
+    name: "open-mid front rounded vowel",
+    description: "An open-mid front vowel made with rounded lips.",
+    examples: ["like French EU in jeune", "symbol: œ"]
+  },
+  "ɞ": {
+    name: "open-mid central rounded vowel",
+    description: "An open-mid central vowel made with rounded lips.",
+    examples: ["symbol: ɞ"]
+  },
   "æ": {
     name: "near-open front vowel",
     description: "A low front vowel common in many English short-A words.",
     examples: ["like A in apple", "like the vowel in cat"]
+  },
+  "ɶ": {
+    name: "open front rounded vowel",
+    description: "A low front vowel made with rounded lips.",
+    examples: ["symbol: ɶ"]
   },
   a: {
     name: "open front vowel",
@@ -766,6 +1096,43 @@ function clamp(value: number, minimum: number, maximum: number): number {
   return Math.min(Math.max(value, minimum), maximum);
 }
 
+function cubicBezierProgress(
+  progress: number,
+  controlX1: number,
+  controlY1: number,
+  controlX2: number,
+  controlY2: number
+): number {
+  const sampleCurve = (first: number, second: number, time: number) => {
+    const inverseTime = 1 - time;
+    return (
+      3 * inverseTime * inverseTime * time * first +
+      3 * inverseTime * time * time * second +
+      time * time * time
+    );
+  };
+  const sampleCurveDerivative = (first: number, second: number, time: number) => {
+    const inverseTime = 1 - time;
+    return (
+      3 * inverseTime * inverseTime * first +
+      6 * inverseTime * time * (second - first) +
+      3 * time * time * (1 - second)
+    );
+  };
+
+  let time = progress;
+  for (let iteration = 0; iteration < 5; iteration += 1) {
+    const currentX = sampleCurve(controlX1, controlX2, time) - progress;
+    const derivative = sampleCurveDerivative(controlX1, controlX2, time);
+    if (Math.abs(currentX) < 0.00001 || derivative === 0) {
+      break;
+    }
+    time = clamp(time - currentX / derivative, 0, 1);
+  }
+
+  return sampleCurve(controlY1, controlY2, time);
+}
+
 function positionProjectionOptions(
   options: ProjectionOption[],
   selectedSymbol: string
@@ -791,7 +1158,7 @@ function positionProjectionOptions(
     });
 
   if (neighbours.length === 0) {
-    return [{ ...selected, x: 50, y: 50 }];
+    return [{ ...selected, x: 50, y: 50, isSelected: true }];
   }
 
   const angularNeighbours = [...neighbours].sort(
@@ -836,14 +1203,76 @@ function positionProjectionOptions(
     return {
       ...neighbour.option,
       x: clamp(50 + xOffset, 8, 92),
-      y: clamp(50 + yOffset, 10, 90)
+      y: clamp(50 + yOffset, 10, 90),
+      isSelected: false
     };
   });
 
-  return [{ ...selected, x: 50, y: 50 }, ...positioned];
+  return [{ ...selected, x: 50, y: 50, isSelected: true }, ...positioned];
 }
 
-function guideVector(
+function projectionOptionsForLanguage(
+  options: ProjectionOption[],
+  language: string,
+  selectedSymbol: string,
+  shouldRestrict: boolean
+): ProjectionOption[] {
+  const inventory = languagePhonemeInventories[language];
+  if (!shouldRestrict || !inventory) {
+    return options;
+  }
+
+  return options.filter(
+    (option) => option.symbol === selectedSymbol || inventory.has(option.symbol)
+  );
+}
+
+function positionFixedProjectionOptions(
+  options: ProjectionOption[],
+  selectedSymbol: string
+): PositionedProjectionOption[] {
+  return options.map((option) => ({
+    ...option,
+    x: option.featureX,
+    y: option.featureY,
+    isSelected: option.symbol === selectedSymbol
+  }));
+}
+
+function projectionEdgePoint(angleDeg: number): { x: number; y: number } {
+  const edgeMinimum = 7;
+  const edgeMaximum = 93;
+  const angleRadians = (angleDeg * Math.PI) / 180;
+  const dx = Math.cos(angleRadians);
+  const dy = Math.sin(angleRadians);
+  const edgeDistanceX =
+    dx >= 0 ? (edgeMaximum - 50) / dx : (edgeMinimum - 50) / dx;
+  const edgeDistanceY =
+    dy >= 0 ? (edgeMaximum - 50) / dy : (edgeMinimum - 50) / dy;
+  const edgeDistance = Math.min(
+    Number.isFinite(edgeDistanceX) ? edgeDistanceX : Number.POSITIVE_INFINITY,
+    Number.isFinite(edgeDistanceY) ? edgeDistanceY : Number.POSITIVE_INFINITY
+  );
+
+  return {
+    x: clamp(50 + dx * edgeDistance, edgeMinimum, edgeMaximum),
+    y: clamp(50 + dy * edgeDistance, edgeMinimum, edgeMaximum)
+  };
+}
+
+function readableGuideRotation(angleDeg: number): {
+  displayAngleDeg: number;
+  isFlipped: boolean;
+} {
+  const normalizedAngle = ((angleDeg + 180) % 360) - 180;
+  const isFlipped = normalizedAngle > 90 || normalizedAngle < -90;
+  return {
+    displayAngleDeg: isFlipped ? normalizedAngle + 180 : normalizedAngle,
+    isFlipped
+  };
+}
+
+function projectionGuide(
   options: PositionedProjectionOption[],
   selected: PositionedProjectionOption,
   id: string,
@@ -871,20 +1300,24 @@ function guideVector(
     return null;
   }
 
+  const angleDeg = (Math.atan2(vector.y, vector.x) * 180) / Math.PI;
+  const rotation = readableGuideRotation(angleDeg);
+  const edgePoint = projectionEdgePoint(angleDeg);
   return {
     id,
     label,
-    angleDeg: (Math.atan2(vector.y, vector.x) * 180) / Math.PI,
-    length: clamp(44 + magnitude * 0.7, 54, 96)
+    angleDeg,
+    displayAngleDeg: rotation.displayAngleDeg,
+    isFlipped: rotation.isFlipped,
+    edgeX: edgePoint.x,
+    edgeY: edgePoint.y
   };
 }
 
 function localProjectionGuides(
   options: PositionedProjectionOption[]
 ): ProjectionGuide[] {
-  const selected = options.find(
-    (option) => Math.hypot(option.x - 50, option.y - 50) < 2
-  );
+  const selected = options.find((option) => option.isSelected);
   if (!selected) {
     return [];
   }
@@ -892,28 +1325,28 @@ function localProjectionGuides(
   const conceptGuides =
     selected.tokenKind === "vowel"
       ? [
-          guideVector(
+          projectionGuide(
             options,
             selected,
             "closer",
             "closer",
             (option) => selected.featureY - option.featureY
           ),
-          guideVector(
+          projectionGuide(
             options,
             selected,
             "more-open",
             "more open",
             (option) => option.featureY - selected.featureY
           ),
-          guideVector(
+          projectionGuide(
             options,
             selected,
             "fronter",
             "fronter",
             (option) => selected.featureX - option.featureX
           ),
-          guideVector(
+          projectionGuide(
             options,
             selected,
             "backer",
@@ -922,28 +1355,28 @@ function localProjectionGuides(
           )
         ]
       : [
-          guideVector(
+          projectionGuide(
             options,
             selected,
             "harder",
             "harder",
             (option) => selected.featureY - option.featureY
           ),
-          guideVector(
+          projectionGuide(
             options,
             selected,
             "softer",
             "softer",
             (option) => option.featureY - selected.featureY
           ),
-          guideVector(
+          projectionGuide(
             options,
             selected,
             "fronter",
             "fronter",
             (option) => selected.featureX - option.featureX
           ),
-          guideVector(
+          projectionGuide(
             options,
             selected,
             "backer",
@@ -957,8 +1390,9 @@ function localProjectionGuides(
 
 function projectionGuideStyle(guide: ProjectionGuide): CSSProperties {
   return {
-    "--guide-angle": `${guide.angleDeg}deg`,
-    "--guide-length": `${guide.length}px`
+    "--guide-angle": `${guide.displayAngleDeg}deg`,
+    left: `${guide.edgeX}%`,
+    top: `${guide.edgeY}%`
   } as CSSProperties;
 }
 
@@ -978,18 +1412,20 @@ function vectorForDirection(direction: Direction): { x: number; y: number } {
 
 function nearestProjectionMove(
   direction: Direction,
-  options: PositionedProjectionOption[]
+  options: PositionedProjectionOption[],
+  excludedSymbols: Set<string> = new Set()
 ): { move: CandidateMove; target: PositionedProjectionOption } | null {
   const vector = vectorForDirection(direction);
-  const selected = options.find(
-    (option) => Math.hypot(option.x - 50, option.y - 50) < 2
-  );
+  const selected = options.find((option) => option.isSelected);
   if (!selected) {
     return null;
   }
 
   const targets = options
-    .filter((option) => option.symbol !== selected.symbol)
+    .filter(
+      (option) =>
+        option.symbol !== selected.symbol && !excludedSymbols.has(option.symbol)
+    )
     .map((option) => {
       const dx = option.x - selected.x;
       const dy = option.y - selected.y;
@@ -1026,16 +1462,23 @@ function nearestProjectionMove(
 function keyboardConnections(
   options: PositionedProjectionOption[]
 ): KeyboardConnection[] {
+  const selected = options.find((option) => option.isSelected);
+  if (!selected) {
+    return [];
+  }
+
+  const usedTargetSymbols = new Set<string>();
   return (["up", "down", "left", "right"] as Direction[]).flatMap((direction) => {
-    const targetMove = nearestProjectionMove(direction, options);
+    const targetMove = nearestProjectionMove(direction, options, usedTargetSymbols);
     const label = keyboardDirectionLabels[direction];
     if (!targetMove || !label) {
       return [];
     }
 
     const { move, target } = targetMove;
-    const dx = target.x - 50;
-    const dy = target.y - 50;
+    usedTargetSymbols.add(target.symbol);
+    const dx = target.x - selected.x;
+    const dy = target.y - selected.y;
     const length = Math.hypot(dx, dy);
     if (length < 4) {
       return [];
@@ -1046,15 +1489,100 @@ function keyboardConnections(
         id: direction,
         label,
         move,
-        x1: 50,
-        y1: 50,
+        x1: selected.x,
+        y1: selected.y,
         x2: target.x,
         y2: target.y,
-        midpointX: 50 + dx / 2,
-        midpointY: 50 + dy / 2
+        midpointX: selected.x + dx / 2,
+        midpointY: selected.y + dy / 2
       }
     ];
   });
+}
+
+function projectionNeighbourConnections(
+  options: PositionedProjectionOption[],
+  pairs: [string, string][],
+  tokenKind: ProjectionOption["tokenKind"]
+): ProjectionNeighbourConnection[] {
+  const optionsBySymbol = new Map(
+    options
+      .filter((option) => option.tokenKind === tokenKind)
+      .map((option) => [option.symbol, option])
+  );
+
+  return pairs.flatMap(([fromSymbol, toSymbol]) => {
+    const from = optionsBySymbol.get(fromSymbol);
+    const to = optionsBySymbol.get(toSymbol);
+    if (!from || !to) {
+      return [];
+    }
+    return [
+      {
+        id: `${fromSymbol}-${toSymbol}`,
+        x1: from.x,
+        y1: from.y,
+        x2: to.x,
+        y2: to.y
+      }
+    ];
+  });
+}
+
+function nearestProjectionNeighbourConnections(
+  options: PositionedProjectionOption[],
+  tokenKind: ProjectionOption["tokenKind"],
+  neighbourCount = 2
+): ProjectionNeighbourConnection[] {
+  const typedOptions = options.filter((option) => option.tokenKind === tokenKind);
+  const connectionById = new Map<string, ProjectionNeighbourConnection>();
+
+  typedOptions.forEach((from) => {
+    const nearestOptions = typedOptions
+      .filter((to) => to.symbol !== from.symbol)
+      .map((to) => ({
+        to,
+        distance: Math.hypot(to.x - from.x, to.y - from.y)
+      }))
+      .sort((left, right) => left.distance - right.distance)
+      .slice(0, neighbourCount);
+
+    nearestOptions.forEach(({ to }) => {
+      const symbols = [from.symbol, to.symbol].sort();
+      const id = `${symbols[0]}-${symbols[1]}`;
+      if (connectionById.has(id)) {
+        return;
+      }
+      connectionById.set(id, {
+        id,
+        x1: from.x,
+        y1: from.y,
+        x2: to.x,
+        y2: to.y
+      });
+    });
+  });
+
+  return [...connectionById.values()];
+}
+
+function projectionNeighbourConnectionsForLanguage(
+  options: PositionedProjectionOption[],
+  language: string,
+  tokenKind: ProjectionOption["tokenKind"],
+  shouldRestrict: boolean,
+  defaultPairs: [string, string][]
+): ProjectionNeighbourConnection[] {
+  if (!shouldRestrict) {
+    return projectionNeighbourConnections(options, defaultPairs, tokenKind);
+  }
+
+  const craftedPairs = languageNeighbourPairs[language]?.[tokenKind];
+  if (craftedPairs) {
+    return projectionNeighbourConnections(options, craftedPairs, tokenKind);
+  }
+
+  return nearestProjectionNeighbourConnections(options, tokenKind);
 }
 
 function keyboardConnectionStyle(connection: KeyboardConnection): CSSProperties {
@@ -1114,7 +1642,7 @@ function infoForToken(token: PhonemeToken | null): PhonemeInfo | null {
 
     return {
       name: token.token_kind,
-      description: `${token.text} is a ${token.token_kind} sound.`,
+      description: `${token.text} is a ${token.token_kind} sound that is not yet fully supported`,
       examples: [`symbol: ${token.text}`]
     };
   }
@@ -1187,6 +1715,104 @@ function selectionAfterMove(
   return previousEditable ?? firstEditableIndex(nextTokens);
 }
 
+function AnimatedConnectionLine({
+  className,
+  x1,
+  y1,
+  x2,
+  y2,
+  endpointPadding = 0
+}: AnimatedConnectionLineProps) {
+  const lineRef = useRef<SVGLineElement | null>(null);
+  const dx = x2 - x1;
+  const dy = y2 - y1;
+  const length = Math.hypot(dx, dy);
+  const padding = Math.min(endpointPadding, length / 2);
+  const paddingX = length > 0 ? (dx / length) * padding : 0;
+  const paddingY = length > 0 ? (dy / length) * padding : 0;
+  const paddedX1 = x1 + paddingX;
+  const paddedY1 = y1 + paddingY;
+  const paddedX2 = x2 - paddingX;
+  const paddedY2 = y2 - paddingY;
+  const previousCoordinates = useRef({
+    x1: paddedX1,
+    y1: paddedY1,
+    x2: paddedX2,
+    y2: paddedY2
+  });
+
+  useLayoutEffect(() => {
+    const line = lineRef.current;
+    const from = previousCoordinates.current;
+    const to = {
+      x1: paddedX1,
+      y1: paddedY1,
+      x2: paddedX2,
+      y2: paddedY2
+    };
+    previousCoordinates.current = to;
+
+    if (!line) {
+      return;
+    }
+
+    const prefersReducedMotion = window.matchMedia(
+      "(prefers-reduced-motion: reduce)"
+    ).matches;
+    const changed =
+      from.x1 !== to.x1 ||
+      from.y1 !== to.y1 ||
+      from.x2 !== to.x2 ||
+      from.y2 !== to.y2;
+
+    if (prefersReducedMotion || !changed) {
+      line.setAttribute("x1", String(to.x1));
+      line.setAttribute("y1", String(to.y1));
+      line.setAttribute("x2", String(to.x2));
+      line.setAttribute("y2", String(to.y2));
+      return;
+    }
+
+    let animationFrame = 0;
+    let startedAt: number | null = null;
+    const interpolate = (start: number, end: number, progress: number) =>
+      start + (end - start) * progress;
+    const setCoordinates = (progress: number) => {
+      line.setAttribute("x1", String(interpolate(from.x1, to.x1, progress)));
+      line.setAttribute("y1", String(interpolate(from.y1, to.y1, progress)));
+      line.setAttribute("x2", String(interpolate(from.x2, to.x2, progress)));
+      line.setAttribute("y2", String(interpolate(from.y2, to.y2, progress)));
+    };
+
+    setCoordinates(0);
+    const step = (timestamp: number) => {
+      startedAt ??= timestamp;
+      const progress = Math.min(
+        (timestamp - startedAt) / mapAnimationDurationMs,
+        1
+      );
+      setCoordinates(cubicBezierProgress(progress, 0.22, 1, 0.36, 1));
+      if (progress < 1) {
+        animationFrame = window.requestAnimationFrame(step);
+      }
+    };
+    animationFrame = window.requestAnimationFrame(step);
+
+    return () => window.cancelAnimationFrame(animationFrame);
+  }, [paddedX1, paddedY1, paddedX2, paddedY2]);
+
+  return (
+    <line
+      ref={lineRef}
+      className={className}
+      x1={paddedX1}
+      y1={paddedY1}
+      x2={paddedX2}
+      y2={paddedY2}
+    />
+  );
+}
+
 export default function App() {
   const [text, setText] = useState(randomStarterWord);
   const [voice, setVoice] = useState("af_bella");
@@ -1197,6 +1823,10 @@ export default function App() {
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
   const [lastSpeechRequest, setLastSpeechRequest] = useState<SpeechRequest | null>(null);
   const [showSpectrogram, setShowSpectrogram] = useState(false);
+  const [showFixedProjection, setShowFixedProjection] = useState(true);
+  const [showNeighbours, setShowNeighbours] = useState(true);
+  const [restrictToLanguagePhonemes, setRestrictToLanguagePhonemes] =
+    useState(false);
   const [spectrogram, setSpectrogram] = useState<SpectrogramResponse | null>(null);
   const [spectrogramError, setSpectrogramError] = useState<string | null>(null);
   const [spectrogramSettings, setSpectrogramSettings] =
@@ -1381,8 +2011,21 @@ export default function App() {
           },
           ...options
         ];
-    return positionProjectionOptions(optionsWithSelected, selectedProjectionSymbol);
-  }, [selectedToken]);
+    const visibleOptions = projectionOptionsForLanguage(
+      optionsWithSelected,
+      language,
+      selectedProjectionSymbol,
+      restrictToLanguagePhonemes
+    );
+    if (showFixedProjection) {
+      return positionFixedProjectionOptions(
+        visibleOptions,
+        selectedProjectionSymbol
+      );
+    }
+
+    return positionProjectionOptions(visibleOptions, selectedProjectionSymbol);
+  }, [language, restrictToLanguagePhonemes, selectedToken, showFixedProjection]);
 
   const projectionGuides = useMemo(() => {
     return localProjectionGuides(projectionOptions);
@@ -1392,6 +2035,44 @@ export default function App() {
     return keyboardConnections(projectionOptions);
   }, [projectionOptions]);
 
+  const vowelMapConnections = useMemo(() => {
+    if (!showNeighbours || selectedToken?.token_kind !== "vowel") {
+      return [];
+    }
+    return projectionNeighbourConnectionsForLanguage(
+      projectionOptions,
+      language,
+      "vowel",
+      restrictToLanguagePhonemes,
+      vowelNeighbourPairs
+    );
+  }, [
+    language,
+    projectionOptions,
+    restrictToLanguagePhonemes,
+    selectedToken?.token_kind,
+    showNeighbours
+  ]);
+
+  const consonantMapConnections = useMemo(() => {
+    if (!showNeighbours || selectedToken?.token_kind !== "consonant") {
+      return [];
+    }
+    return projectionNeighbourConnectionsForLanguage(
+      projectionOptions,
+      language,
+      "consonant",
+      restrictToLanguagePhonemes,
+      consonantNeighbourPairs
+    );
+  }, [
+    language,
+    projectionOptions,
+    restrictToLanguagePhonemes,
+    selectedToken?.token_kind,
+    showNeighbours
+  ]);
+
   useLayoutEffect(() => {
     const prefersReducedMotion = window.matchMedia(
       "(prefers-reduced-motion: reduce)"
@@ -1399,8 +2080,16 @@ export default function App() {
     const nextRects = new Map<string, DOMRect>();
 
     mapNodeRefs.current.forEach((node, key) => {
+      const runningAnimations = node.getAnimations();
+      const currentVisualRect = node.getBoundingClientRect();
+
+      runningAnimations.forEach((animation) => animation.cancel());
+
       const nextRect = node.getBoundingClientRect();
-      const previousRect = previousMapRects.current.get(key);
+      const previousRect =
+        runningAnimations.length > 0
+          ? currentVisualRect
+          : previousMapRects.current.get(key);
       nextRects.set(key, nextRect);
 
       if (prefersReducedMotion || !previousRect) {
@@ -1409,11 +2098,15 @@ export default function App() {
 
       const deltaX = previousRect.left - nextRect.left;
       const deltaY = previousRect.top - nextRect.top;
-      if (Math.hypot(deltaX, deltaY) < 1) {
+      const distance = Math.hypot(deltaX, deltaY);
+      if (
+        distance < 1 ||
+        distance > maxProjectionAnimationDistancePx ||
+        !Number.isFinite(distance)
+      ) {
         return;
       }
 
-      node.getAnimations().forEach((animation) => animation.cancel());
       node.animate(
         [
           {
@@ -1422,8 +2115,8 @@ export default function App() {
           { transform: "translate(-50%, -50%)" }
         ],
         {
-          duration: 1400,
-          easing: "cubic-bezier(0.22, 1, 0.36, 1)",
+          duration: mapAnimationDurationMs,
+          easing: mapAnimationEasing,
           fill: "both"
         }
       );
@@ -2071,6 +2764,36 @@ export default function App() {
       >
         {result ? (
           <>
+            <div className="projection-toggles projection-toggles-left">
+              <label className="projection-toggle">
+                <input
+                  type="checkbox"
+                  checked={restrictToLanguagePhonemes}
+                  onChange={(event) =>
+                    setRestrictToLanguagePhonemes(event.target.checked)
+                  }
+                />
+                <span>Language phonemes</span>
+              </label>
+            </div>
+            <div className="projection-toggles projection-toggles-right">
+              <label className="projection-toggle">
+                <input
+                  type="checkbox"
+                  checked={showFixedProjection}
+                  onChange={(event) => setShowFixedProjection(event.target.checked)}
+                />
+                <span>Fixed projection</span>
+              </label>
+              <label className="projection-toggle">
+                <input
+                  type="checkbox"
+                  checked={showNeighbours}
+                  onChange={(event) => setShowNeighbours(event.target.checked)}
+                />
+                <span>Neighbours</span>
+              </label>
+            </div>
             {dragState ? (
               <>
                 {(["left", "right"] as const).map((edge) => (
@@ -2244,20 +2967,59 @@ export default function App() {
               </div>
             </div>
             <div className="neighbourhood-board">
+              {projectionGuides.length > 0 ? (
+                <div className="projection-edge-guides" aria-hidden="true">
+                  {projectionGuides.map((guide) => (
+                    <span
+                      key={guide.id}
+                      className="projection-edge-guide"
+                      style={projectionGuideStyle(guide)}
+                    >
+                      <span>{guide.label}</span>
+                      <span className="projection-edge-guide-arrow">
+                        {guide.isFlipped ? "←" : "→"}
+                      </span>
+                    </span>
+                  ))}
+                </div>
+              ) : null}
               <svg
                 className="keyboard-connection-layer"
                 viewBox="0 0 100 100"
                 preserveAspectRatio="none"
                 aria-hidden="true"
               >
+                {vowelMapConnections.map((connection) => (
+                  <AnimatedConnectionLine
+                    key={connection.id}
+                    className="vowel-neighbour-line"
+                    x1={connection.x1}
+                    y1={connection.y1}
+                    x2={connection.x2}
+                    y2={connection.y2}
+                    endpointPadding={2.0}
+                  />
+                ))}
+                {consonantMapConnections.map((connection) => (
+                  <AnimatedConnectionLine
+                    key={connection.id}
+                    className="consonant-neighbour-line"
+                    x1={connection.x1}
+                    y1={connection.y1}
+                    x2={connection.x2}
+                    y2={connection.y2}
+                    endpointPadding={2.0}
+                  />
+                ))}
                 {keyboardMoveConnections.map((connection) => (
-                  <line
+                  <AnimatedConnectionLine
                     key={connection.id}
                     className="keyboard-connection-line"
                     x1={connection.x1}
                     y1={connection.y1}
                     x2={connection.x2}
                     y2={connection.y2}
+                    endpointPadding={3.2}
                   />
                 ))}
               </svg>
@@ -2271,18 +3033,6 @@ export default function App() {
                   <span className="keyboard-connection-label">
                     {connection.label}
                   </span>
-                </span>
-              ))}
-              {projectionGuides.map((guide) => (
-                <span
-                  key={guide.id}
-                  className="projection-guide"
-                  style={projectionGuideStyle(guide)}
-                  aria-hidden="true"
-                >
-                  <span className="projection-guide-line" />
-                  <span className="projection-guide-arrow">→</span>
-                  <span className="projection-guide-label">{guide.label}</span>
                 </span>
               ))}
               {projectionOptions.length > 0 && selectedToken ? (

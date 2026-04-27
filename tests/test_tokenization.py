@@ -49,6 +49,26 @@ def test_navigation_service_normalizes_affricate_ligature():
     assert snapshot.tokens[0].is_editable is True
 
 
+def test_requested_ipa_vowels_are_supported():
+    tokens = split_phoneme_tokens("y ø ɵ ɤ o œ ɯ ɞ ɶ")
+
+    vowel_tokens = [token for token in tokens if token.token_type == "phoneme"]
+
+    assert [token.text for token in vowel_tokens] == [
+        "y",
+        "ø",
+        "ɵ",
+        "ɤ",
+        "o",
+        "œ",
+        "ɯ",
+        "ɞ",
+        "ɶ",
+    ]
+    assert all(token.token_kind == "vowel" for token in vowel_tokens)
+    assert all(token.is_editable for token in vowel_tokens)
+
+
 def test_navigation_service_selects_first_editable_token():
     snapshot = NavigationService().build_snapshot("p a t")
 
