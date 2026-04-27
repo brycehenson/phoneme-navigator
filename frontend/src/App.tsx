@@ -2,12 +2,26 @@ import {
   CSSProperties,
   FormEvent,
   KeyboardEvent,
+  PointerEvent,
+  Suspense,
+  lazy,
   useEffect,
   useLayoutEffect,
   useMemo,
   useRef,
   useState
 } from "react";
+
+const Plot = lazy(() => import("react-plotly.js"));
+
+const defaultSpectrogramSettings: SpectrogramSettings = {
+  windowMs: 25,
+  hopMs: 5,
+  topDb: 80,
+  maxFrequencyHz: 8000,
+  smoothing: 0.75,
+  trimSeconds: 0.3
+};
 
 type Direction =
   | "up"
@@ -52,6 +66,32 @@ type VoicesResponse = {
   voices: string[];
 };
 
+type SpeechRequest = {
+  phonemes: string;
+  voice: string;
+  speed: number;
+};
+
+type SpectrogramResponse = {
+  sample_rate_hz: number;
+  window_ms: number;
+  hop_ms: number;
+  top_db: number;
+  max_frequency_hz: number;
+  times_s: number[];
+  frequencies_hz: number[];
+  magnitudes_db: number[][];
+};
+
+type SpectrogramSettings = {
+  windowMs: number;
+  hopMs: number;
+  topDb: number;
+  maxFrequencyHz: number;
+  smoothing: number;
+  trimSeconds: number;
+};
+
 type ProjectionOption = {
   symbol: string;
   label: string;
@@ -93,7 +133,10 @@ type PhonemeInfo = {
 type DragState = {
   tokenIndex: number;
   insertBeforeIndex: number | null;
+  isOverTrash: boolean;
 };
+
+type TrashDropZoneStyles = Record<"left" | "right", CSSProperties>;
 
 type LanguageOption = {
   value: string;
@@ -106,6 +149,10 @@ const editableKinds = new Set<PhonemeToken["token_kind"]>([
   "stress",
   "diacritic"
 ]);
+
+const phonemeBoxFallbackSizePx = 48;
+const trashDropZoneMaxWidthPx = 82;
+const workspacePaddingPx = 18;
 
 const stressableKinds = new Set<PhonemeToken["token_kind"]>([
   "vowel",
@@ -576,15 +623,22 @@ function moveTokenGroup(
   const movingIndices = new Set(
     tokenWithLeadingStress(tokens, tokenIndex).map((token) => token.index)
   );
+  if (insertBeforeIndex !== null && movingIndices.has(insertBeforeIndex)) {
+    return { phonemes: joinTokens(tokens), selectedIndex: tokenIndex };
+  }
+
   const movingTokens = tokens.filter((token) => movingIndices.has(token.index));
   const remainingTokens = tokens.filter((token) => !movingIndices.has(token.index));
-  const insertionPosition =
-    insertBeforeIndex === null
-      ? remainingTokens.length
-      : Math.max(
-          0,
-          remainingTokens.findIndex((token) => token.index === insertBeforeIndex)
-        );
+  let insertionPosition = remainingTokens.length;
+  if (insertBeforeIndex !== null) {
+    insertionPosition = remainingTokens.findIndex(
+      (token) => token.index === insertBeforeIndex
+    );
+    if (insertionPosition === -1) {
+      return { phonemes: joinTokens(tokens), selectedIndex: tokenIndex };
+    }
+  }
+
   const nextTokens = [
     ...remainingTokens.slice(0, insertionPosition),
     ...movingTokens,
@@ -595,6 +649,80 @@ function moveTokenGroup(
     phonemes: joinTokens(recomputeIndices(nextTokens)),
     selectedIndex: insertionPosition + Math.max(selectedOffset, 0)
   };
+}
+
+function nearestEditableSelection(
+  tokens: PhonemeToken[],
+  preferredIndex: number
+): number | null {
+  if (tokens.length === 0) {
+    return null;
+  }
+
+  const samePosition = tokens[preferredIndex];
+  if (samePosition?.is_editable) {
+    return samePosition.index;
+  }
+
+  const previousEditable = nextEditableIndex(tokens, preferredIndex, -1);
+  if (previousEditable !== preferredIndex) {
+    return previousEditable;
+  }
+
+  const nextEditable = nextEditableIndex(tokens, preferredIndex - 1, 1);
+  return nextEditable === preferredIndex - 1 ? firstEditableIndex(tokens) : nextEditable;
+}
+
+function deleteTokenGroup(
+  tokens: PhonemeToken[],
+  tokenIndex: number
+): { phonemes: string; selectedIndex: number | null } {
+  const removingIndices = new Set(
+    tokenWithLeadingStress(tokens, tokenIndex).map((token) => token.index)
+  );
+  const nextTokens = recomputeIndices(
+    tokens.filter((token) => !removingIndices.has(token.index))
+  );
+
+  return {
+    phonemes: joinTokens(nextTokens),
+    selectedIndex: nearestEditableSelection(nextTokens, tokenIndex)
+  };
+}
+
+function removeMarkOrDeleteToken(
+  tokens: PhonemeToken[],
+  tokenIndex: number
+): { phonemes: string; selectedIndex: number | null } {
+  const selected = tokens[tokenIndex];
+  if (!selected) {
+    return { phonemes: joinTokens(tokens), selectedIndex: tokenIndex };
+  }
+
+  const previousToken = tokens[tokenIndex - 1];
+  if (previousToken?.token_kind === "stress") {
+    const nextTokens = recomputeIndices(
+      tokens.filter((token) => token.index !== previousToken.index)
+    );
+    return {
+      phonemes: joinTokens(nextTokens),
+      selectedIndex: Math.max(0, tokenIndex - 1)
+    };
+  }
+
+  if (hasLongMark(selected)) {
+    const nextTokens = [...tokens];
+    nextTokens[tokenIndex] = {
+      ...selected,
+      text: basePhonemeText(selected.text)
+    };
+    return {
+      phonemes: joinTokens(recomputeIndices(nextTokens)),
+      selectedIndex: tokenIndex
+    };
+  }
+
+  return deleteTokenGroup(tokens, tokenIndex);
 }
 
 function insertToken(
@@ -1028,9 +1156,13 @@ function preferredVoiceForLanguage(
   );
 }
 
-function randomStarterWord(): string {
-  const index = Math.floor(Math.random() * starterWords.length);
-  return starterWords[index] ?? "rough";
+function randomStarterWord(currentWord = ""): string {
+  const availableWords =
+    starterWords.length > 1
+      ? starterWords.filter((word) => word !== currentWord.trim())
+      : starterWords;
+  const index = Math.floor(Math.random() * availableWords.length);
+  return availableWords[index] ?? "rough";
 }
 
 function selectionAfterMove(
@@ -1064,17 +1196,29 @@ export default function App() {
   const [result, setResult] = useState<PhonemizeResponse | null>(null);
   const [history, setHistory] = useState<PhonemizeResponse[]>([]);
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
+  const [lastSpeechRequest, setLastSpeechRequest] = useState<SpeechRequest | null>(null);
+  const [showSpectrogram, setShowSpectrogram] = useState(false);
+  const [spectrogram, setSpectrogram] = useState<SpectrogramResponse | null>(null);
+  const [spectrogramError, setSpectrogramError] = useState<string | null>(null);
+  const [spectrogramSettings, setSpectrogramSettings] =
+    useState<SpectrogramSettings>(defaultSpectrogramSettings);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isLoadingVoices, setIsLoadingVoices] = useState(true);
   const [isSpeaking, setIsSpeaking] = useState(false);
+  const [isLoadingSpectrogram, setIsLoadingSpectrogram] = useState(false);
   const [dragState, setDragState] = useState<DragState | null>(null);
+  const [trashDropZoneStyles, setTrashDropZoneStyles] =
+    useState<TrashDropZoneStyles | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const workspaceRef = useRef<HTMLElement | null>(null);
+  const tokenStripRef = useRef<HTMLDivElement | null>(null);
   const lastConvertedKey = useRef<string | null>(null);
   const phonemeEditBaseline = useRef<PhonemizeResponse | null>(null);
   const mapNodeRefs = useRef<Map<string, HTMLButtonElement>>(new Map());
   const previousMapRects = useRef<Map<string, DOMRect>>(new Map());
   const hasRunInitialConversion = useRef(false);
+  const [spectrogramHeight, setSpectrogramHeight] = useState(210);
 
   useEffect(() => {
     return () => {
@@ -1127,12 +1271,63 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    if (!showSpectrogram || !lastSpeechRequest) {
+      return;
+    }
+
+    const controller = new AbortController();
+
+    async function loadSpectrogram() {
+      setIsLoadingSpectrogram(true);
+      setSpectrogramError(null);
+      try {
+        const response = await fetch("/api/spectrogram", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            ...lastSpeechRequest,
+            window_ms: spectrogramSettings.windowMs,
+            hop_ms: spectrogramSettings.hopMs,
+            top_db: spectrogramSettings.topDb,
+            max_frequency_hz: spectrogramSettings.maxFrequencyHz,
+            smoothing: spectrogramSettings.smoothing,
+            trim_seconds: spectrogramSettings.trimSeconds
+          }),
+          signal: controller.signal
+        });
+        if (!response.ok) {
+          throw new Error(await response.text());
+        }
+
+        const payload = (await response.json()) as SpectrogramResponse;
+        setSpectrogram(payload);
+      } catch (caughtError) {
+        if (!controller.signal.aborted) {
+          setSpectrogramError(
+            caughtError instanceof Error
+              ? caughtError.message
+              : "Unknown spectrogram failure"
+          );
+        }
+      } finally {
+        if (!controller.signal.aborted) {
+          setIsLoadingSpectrogram(false);
+        }
+      }
+    }
+
+    void loadSpectrogram();
+
+    return () => controller.abort();
+  }, [showSpectrogram, lastSpeechRequest, spectrogramSettings]);
+
+  useEffect(() => {
     if (hasRunInitialConversion.current || isLoadingVoices || voices.length === 0) {
       return;
     }
 
     hasRunInitialConversion.current = true;
-    void convertAndSpeak(true);
+    void convertAndSpeak(true, false);
   }, [isLoadingVoices, voices.length, voice]);
 
   function setMapNodeRef(key: string, node: HTMLButtonElement | null) {
@@ -1238,8 +1433,64 @@ export default function App() {
     previousMapRects.current = nextRects;
   }, [projectionOptions]);
 
-  async function convertAndSpeak(forceRefresh = false) {
-    const trimmedText = text.trim();
+  useLayoutEffect(() => {
+    if (!dragState) {
+      setTrashDropZoneStyles(null);
+      return;
+    }
+
+    const updateTrashDropZoneStyles = () => {
+      const workspaceNode = workspaceRef.current;
+      const tokenStripNode = tokenStripRef.current;
+      if (!workspaceNode || !tokenStripNode) {
+        return;
+      }
+
+      const workspaceRect = workspaceNode.getBoundingClientRect();
+      const tokenStripRect = tokenStripNode.getBoundingClientRect();
+      const tokenNode = tokenStripNode.querySelector<HTMLElement>(".token");
+      const tokenRect = tokenNode?.getBoundingClientRect();
+      const phonemeBoxWidth = tokenRect?.width ?? phonemeBoxFallbackSizePx;
+      const phonemeBoxHeight = tokenRect?.height ?? phonemeBoxFallbackSizePx;
+      const zoneWidth = Math.min(trashDropZoneMaxWidthPx, workspaceRect.width * 0.14);
+      const zoneHeight = phonemeBoxHeight * 2;
+      const zoneGap = phonemeBoxWidth * 1.5;
+      const minLeft = workspacePaddingPx;
+      const maxLeft = Math.max(minLeft, workspaceRect.width - zoneWidth - workspacePaddingPx);
+      const top = Math.max(
+        workspacePaddingPx,
+        tokenStripRect.top - workspaceRect.top
+      );
+      const clampLeft = (leftPx: number) =>
+        Math.min(Math.max(leftPx, minLeft), maxLeft);
+
+      setTrashDropZoneStyles({
+        left: {
+          top,
+          left: clampLeft(tokenStripRect.left - workspaceRect.left - zoneGap - zoneWidth),
+          width: zoneWidth,
+          height: zoneHeight
+        },
+        right: {
+          top,
+          left: clampLeft(tokenStripRect.right - workspaceRect.left + zoneGap),
+          width: zoneWidth,
+          height: zoneHeight
+        }
+      });
+    };
+
+    updateTrashDropZoneStyles();
+    window.addEventListener("resize", updateTrashDropZoneStyles);
+    return () => window.removeEventListener("resize", updateTrashDropZoneStyles);
+  }, [dragState, displayTokens.length]);
+
+  async function convertAndSpeak(
+    forceRefresh = false,
+    shouldSpeak = true,
+    textOverride = text
+  ) {
+    const trimmedText = textOverride.trim();
     const conversionKey = `${trimmedText}\n${language}\n${voice}`;
     if (
       trimmedText.length === 0 ||
@@ -1266,7 +1517,9 @@ export default function App() {
       const payload = (await response.json()) as PhonemizeResponse;
       setResult(payload);
       setHistory([]);
-      await speakPhonemes(payload.phonemes);
+      if (shouldSpeak) {
+        await speakPhonemes(payload.phonemes);
+      }
       lastConvertedKey.current = conversionKey;
     } catch (caughtError) {
       setError(
@@ -1284,6 +1537,12 @@ export default function App() {
     void convertAndSpeak(true);
   }
 
+  function handleRandomWord() {
+    const nextWord = randomStarterWord(text);
+    setText(nextWord);
+    void convertAndSpeak(true, true, nextWord);
+  }
+
   function handleLanguageChange(nextLanguage: string) {
     setLanguage(nextLanguage);
     setVoice((currentVoice) =>
@@ -1292,13 +1551,15 @@ export default function App() {
   }
 
   async function speakPhonemes(phonemes: string) {
+    const speechRequest = { phonemes, voice, speed: 1.0 };
     setIsSpeaking(true);
     setError(null);
+    setSpectrogramError(null);
     try {
       const response = await fetch("/api/speak", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ phonemes, voice, speed: 1.0 })
+        body: JSON.stringify(speechRequest)
       });
       if (!response.ok) {
         throw new Error(await response.text());
@@ -1315,6 +1576,7 @@ export default function App() {
         audioRef.current.load();
         await audioRef.current.play();
       }
+      setLastSpeechRequest(speechRequest);
     } catch (caughtError) {
       setError(
         caughtError instanceof Error
@@ -1324,6 +1586,39 @@ export default function App() {
     } finally {
       setIsSpeaking(false);
     }
+  }
+
+  function handleSpectrogramDividerPointerDown(
+    event: PointerEvent<HTMLButtonElement>
+  ) {
+    event.preventDefault();
+    const startY = event.clientY;
+    const startHeight = spectrogramHeight;
+    const workspaceHeight = workspaceRef.current?.clientHeight ?? 0;
+    const maxHeight = Math.max(180, workspaceHeight - 260);
+
+    function handlePointerMove(moveEvent: globalThis.PointerEvent) {
+      const nextHeight = startHeight - (moveEvent.clientY - startY);
+      setSpectrogramHeight(Math.min(Math.max(nextHeight, 130), maxHeight));
+    }
+
+    function handlePointerUp() {
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointerup", handlePointerUp);
+    }
+
+    window.addEventListener("pointermove", handlePointerMove);
+    window.addEventListener("pointerup", handlePointerUp, { once: true });
+  }
+
+  function updateSpectrogramSetting(
+    key: keyof SpectrogramSettings,
+    value: number
+  ) {
+    setSpectrogramSettings((currentSettings) => ({
+      ...currentSettings,
+      [key]: value
+    }));
   }
 
   function selectToken(index: number) {
@@ -1401,8 +1696,11 @@ export default function App() {
     await applyTokenEdit(toggleLengthMark(result.tokens, tokenIndex));
   }
 
-  async function applyTokenEdit(edit: { phonemes: string; selectedIndex: number }) {
+  async function applyTokenEdit(edit: { phonemes: string; selectedIndex: number | null }) {
     if (!result) {
+      return;
+    }
+    if (edit.phonemes.length === 0) {
       return;
     }
     setError(null);
@@ -1412,7 +1710,10 @@ export default function App() {
       setResult({
         ...result,
         ...nextState,
-        selected_index: Math.min(edit.selectedIndex, nextState.tokens.length - 1)
+        selected_index:
+          edit.selectedIndex === null
+            ? firstEditableIndex(nextState.tokens)
+            : Math.min(edit.selectedIndex, nextState.tokens.length - 1)
       });
       await speakPhonemes(nextState.phonemes);
     } catch (caughtError) {
@@ -1462,12 +1763,18 @@ export default function App() {
   }
 
   function handleDragStart(tokenIndex: number) {
-    setDragState({ tokenIndex, insertBeforeIndex: tokenIndex });
+    setDragState({ tokenIndex, insertBeforeIndex: tokenIndex, isOverTrash: false });
   }
 
   function handleDragOver(insertBeforeIndex: number | null) {
     setDragState((current) =>
-      current ? { ...current, insertBeforeIndex } : current
+      current ? { ...current, insertBeforeIndex, isOverTrash: false } : current
+    );
+  }
+
+  function handleTrashDragOver() {
+    setDragState((current) =>
+      current ? { ...current, insertBeforeIndex: null, isOverTrash: true } : current
     );
   }
 
@@ -1482,6 +1789,17 @@ export default function App() {
     }
 
     const edit = moveTokenGroup(result.tokens, dragState.tokenIndex, insertBeforeIndex);
+    setDragState(null);
+    await applyTokenEdit(edit);
+  }
+
+  async function handleTrashDrop() {
+    if (!result || !dragState) {
+      setDragState(null);
+      return;
+    }
+
+    const edit = deleteTokenGroup(result.tokens, dragState.tokenIndex);
     setDragState(null);
     await applyTokenEdit(edit);
   }
@@ -1554,6 +1872,15 @@ export default function App() {
       return;
     }
 
+    if (result.selected_index !== null && event.key.toLowerCase() === "r") {
+      const selectedToken = result.tokens[result.selected_index];
+      if (selectedToken?.is_editable) {
+        event.preventDefault();
+        void applyTokenEdit(removeMarkOrDeleteToken(result.tokens, selectedToken.index));
+      }
+      return;
+    }
+
     if (result.selected_index !== null && event.key.toLowerCase() === "x") {
       const selectedToken = result.tokens[result.selected_index];
       if (selectedToken && stressableKinds.has(selectedToken.token_kind)) {
@@ -1604,8 +1931,7 @@ export default function App() {
       <section className="top-panel">
         <form onSubmit={handleSubmit} className="composer" aria-label="Phoneme input">
           <label className="text-input-label" htmlFor="input-text">
-            Text
-            <textarea
+            <input
               id="input-text"
               value={text}
               onChange={(event) => setText(event.target.value)}
@@ -1616,8 +1942,8 @@ export default function App() {
                   void convertAndSpeak(true);
                 }
               }}
-              rows={2}
             />
+            <small>Text</small>
           </label>
           <div className="control-pane">
             <div className="inline-controls">
@@ -1663,9 +1989,19 @@ export default function App() {
               <button type="button" disabled={history.length === 0} onClick={undo}>
                 Undo
               </button>
+              <button
+                type="button"
+                disabled={isLoading || isSpeaking}
+                onClick={handleRandomWord}
+              >
+                Random
+              </button>
             </div>
           </div>
         </form>
+        <div className="conversion-arrow" aria-hidden="true">
+          <span />
+        </div>
         <section className="phoneme-summary" aria-label="Current phoneme summary">
           {result ? (
             <>
@@ -1707,10 +2043,60 @@ export default function App() {
 
       {error ? <pre className="error-box">{error}</pre> : null}
 
-      <section className="workspace" aria-label="Phoneme navigation workspace">
+      <section
+        ref={workspaceRef}
+        className={[
+          "workspace",
+          showSpectrogram ? "workspace-spectrogram-on" : "workspace-spectrogram-off"
+        ]
+          .filter(Boolean)
+          .join(" ")}
+        aria-label="Phoneme navigation workspace"
+      >
         {result ? (
           <>
-            <div className="token-strip" aria-label="Editable phoneme tokens">
+            {dragState ? (
+              <>
+                {(["left", "right"] as const).map((edge) => (
+                  <div
+                    key={edge}
+                    className={[
+                      "trash-drop-zone",
+                      `trash-drop-zone-${edge}`,
+                      dragState.isOverTrash ? "trash-drop-zone-active" : ""
+                    ]
+                      .filter(Boolean)
+                      .join(" ")}
+                    style={trashDropZoneStyles?.[edge]}
+                    aria-label="Delete dragged phoneme"
+                    role="button"
+                    onDragEnter={(event) => {
+                      event.preventDefault();
+                      handleTrashDragOver();
+                    }}
+                    onDragOver={(event) => {
+                      event.preventDefault();
+                      event.dataTransfer.dropEffect = "move";
+                      handleTrashDragOver();
+                    }}
+                    onDrop={(event) => {
+                      event.preventDefault();
+                      void handleTrashDrop();
+                    }}
+                  >
+                    <span className="trash-can-icon" aria-hidden="true">
+                      <span className="trash-can-lid" />
+                      <span className="trash-can-bin" />
+                    </span>
+                  </div>
+                ))}
+              </>
+            ) : null}
+            <div
+              ref={tokenStripRef}
+              className="token-strip"
+              aria-label="Editable phoneme tokens"
+            >
               <div className="token-row-labels" aria-hidden="true">
                 <span>marks</span>
                 <span>phoneme</span>
@@ -1803,7 +2189,9 @@ export default function App() {
               <div
                 className={[
                   "token-drop-slot",
-                  dragState?.insertBeforeIndex === null ? "token-drop-active" : ""
+                  dragState?.insertBeforeIndex === null && !dragState?.isOverTrash
+                    ? "token-drop-active"
+                    : ""
                 ]
                   .filter(Boolean)
                   .join(" ")}
@@ -1930,6 +2318,180 @@ export default function App() {
               controls
               hidden={!audioUrl}
             />
+            <div className="workspace-bottom-bar">
+              <label className="spectrogram-toggle">
+                <input
+                  type="checkbox"
+                  checked={showSpectrogram}
+                  onChange={(event) => setShowSpectrogram(event.target.checked)}
+                />
+                <span>Spectrogram</span>
+              </label>
+              {showSpectrogram ? (
+                <div className="spectrogram-controls" aria-label="Spectrogram controls">
+                  <label>
+                    Window
+                    <input
+                      type="range"
+                      min="10"
+                      max="80"
+                      step="1"
+                      value={spectrogramSettings.windowMs}
+                      onChange={(event) =>
+                        updateSpectrogramSetting("windowMs", Number(event.target.value))
+                      }
+                    />
+                    <span>{spectrogramSettings.windowMs} ms</span>
+                  </label>
+                  <label>
+                    Hop
+                    <input
+                      type="range"
+                      min="1"
+                      max="40"
+                      step="1"
+                      value={spectrogramSettings.hopMs}
+                      onChange={(event) =>
+                        updateSpectrogramSetting("hopMs", Number(event.target.value))
+                      }
+                    />
+                    <span>{spectrogramSettings.hopMs} ms</span>
+                  </label>
+                  <label>
+                    Range
+                    <input
+                      type="range"
+                      min="40"
+                      max="120"
+                      step="5"
+                      value={spectrogramSettings.topDb}
+                      onChange={(event) =>
+                        updateSpectrogramSetting("topDb", Number(event.target.value))
+                      }
+                    />
+                    <span>{spectrogramSettings.topDb} dB</span>
+                  </label>
+                  <label>
+                    Max Hz
+                    <input
+                      type="range"
+                      min="1000"
+                      max="12000"
+                      step="500"
+                      value={spectrogramSettings.maxFrequencyHz}
+                      onChange={(event) =>
+                        updateSpectrogramSetting(
+                          "maxFrequencyHz",
+                          Number(event.target.value)
+                        )
+                      }
+                    />
+                    <span>{spectrogramSettings.maxFrequencyHz}</span>
+                  </label>
+                  <label>
+                    Smooth
+                    <input
+                      type="range"
+                      min="0"
+                      max="2.5"
+                      step="0.25"
+                      value={spectrogramSettings.smoothing}
+                      onChange={(event) =>
+                        updateSpectrogramSetting("smoothing", Number(event.target.value))
+                      }
+                    />
+                    <span>{spectrogramSettings.smoothing.toFixed(2)}</span>
+                  </label>
+                </div>
+              ) : null}
+            </div>
+            {showSpectrogram ? (
+              <>
+                <button
+                  type="button"
+                  className="spectrogram-divider"
+                  aria-label="Resize spectrogram"
+                  onPointerDown={handleSpectrogramDividerPointerDown}
+                >
+                  <span />
+                </button>
+                <section
+                  className="spectrogram-panel"
+                  aria-label="Speech spectrogram"
+                  style={{ height: `${spectrogramHeight}px` }}
+                >
+                  {spectrogram ? (
+                    <div className="spectrogram-plot-frame">
+                      <Suspense
+                        fallback={
+                          <div className="spectrogram-empty">
+                            Loading spectrogram plot...
+                          </div>
+                        }
+                      >
+                        <Plot
+                          className="spectrogram-plot"
+                          data={[
+                            {
+                              type: "heatmap",
+                              x: spectrogram.times_s,
+                              y: spectrogram.frequencies_hz,
+                              z: spectrogram.magnitudes_db,
+                              colorscale: "Viridis",
+                              zmin: -spectrogram.top_db,
+                              zmax: 0,
+                              zsmooth: "best",
+                              hovertemplate:
+                                "Time %{x:.2f} s<br>Frequency %{y:.0f} Hz<br>%{z:.1f} dB<extra></extra>"
+                            }
+                          ]}
+                          layout={{
+                            autosize: true,
+                            height: spectrogramHeight - 18,
+                            margin: { l: 54, r: 18, t: 8, b: 38 },
+                            paper_bgcolor: "rgba(0,0,0,0)",
+                            plot_bgcolor: "rgba(0,0,0,0)",
+                            xaxis: {
+                              title: { text: "Time (s)" },
+                              fixedrange: false
+                            },
+                            yaxis: {
+                              title: { text: "Frequency (Hz)" },
+                              range: [0, spectrogram.max_frequency_hz],
+                              fixedrange: false
+                            }
+                          }}
+                          config={{
+                            displayModeBar: true,
+                            displaylogo: false,
+                            responsive: true,
+                            scrollZoom: true,
+                            modeBarButtonsToRemove: [
+                              "select2d",
+                              "lasso2d",
+                              "toImage"
+                            ]
+                          }}
+                          useResizeHandler
+                          style={{ width: "100%", height: "100%" }}
+                        />
+                      </Suspense>
+                      {isLoadingSpectrogram || spectrogramError ? (
+                        <div className="spectrogram-status" role="status">
+                          {isLoadingSpectrogram ? "Updating spectrogram..." : spectrogramError}
+                        </div>
+                      ) : null}
+                    </div>
+                  ) : (
+                    <div className="spectrogram-empty">
+                      {isLoadingSpectrogram
+                        ? "Loading spectrogram..."
+                        : spectrogramError ?? "Replay audio to generate a spectrogram."}
+                    </div>
+                  )}
+                </section>
+              </>
+            ) : null}
           </>
         ) : (
           <div className="empty-workspace">
@@ -1943,7 +2505,7 @@ export default function App() {
         <span>Drag to change order.</span>
         <span>Click marks above a phoneme for stress or vowel length.</span>
         <span>Use arrows or WASD to move on the map.</span>
-        <span>Use Q/E for previous or next phoneme, X for stress, C for length, space to replay, z to undo.</span>
+        <span>Use Q/E for previous or next phoneme, X for stress, C for length, R to remove, space to replay, z to undo.</span>
       </footer>
     </main>
   );

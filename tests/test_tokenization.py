@@ -40,6 +40,15 @@ def test_navigation_service_normalizes_kokoro_ascii_markers():
     assert snapshot.tokens[2].token_kind == "vowel"
 
 
+def test_navigation_service_normalizes_affricate_ligature():
+    snapshot = NavigationService().build_snapshot("ʤˈæz")
+
+    assert snapshot.phonemes == "dʒˈæz"
+    assert [token.text for token in snapshot.tokens] == ["dʒ", "ˈ", "æ", "z"]
+    assert snapshot.tokens[0].token_kind == "consonant"
+    assert snapshot.tokens[0].is_editable is True
+
+
 def test_navigation_service_selects_first_editable_token():
     snapshot = NavigationService().build_snapshot("p a t")
 

@@ -29,3 +29,16 @@ class VoicesResponse(BaseModel):
     """API response for available speech synthesis voices."""
 
     voices: list[str]
+
+
+class SpectrogramResponse(BaseModel):
+    """API response for a speech spectrogram."""
+
+    sample_rate_hz: int
+    window_ms: float
+    hop_ms: float
+    top_db: float
+    max_frequency_hz: float
+    times_s: list[float]
+    frequencies_hz: list[float]
+    magnitudes_db: list[list[float]]

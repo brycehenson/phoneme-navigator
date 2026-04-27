@@ -199,6 +199,36 @@ Build the frontend with:
 npm --prefix frontend run build
 ```
 
+## Docker Compose
+
+Build and launch the app, backend, and Kokoro-FastAPI together:
+
+```bash
+docker compose up --build
+```
+
+The composed app is served from:
+
+- Frontend: `http://localhost:8080`
+- Backend health: `http://localhost:8000/healthz`
+- Kokoro-FastAPI: `http://localhost:8880`
+
+The compose setup uses the Kokoro CPU image by default:
+
+```text
+ghcr.io/remsky/kokoro-fastapi-cpu:latest
+```
+
+On a CUDA-capable host, use the GPU override:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.gpu.yml up --build
+```
+
+The backend image installs only the main Python dependency set. Notebook,
+plotting, testing, formatting, and other development dependencies remain in the
+`dev` extra and are not included in the runtime container.
+
 ## Repository Layout
 
 ```text

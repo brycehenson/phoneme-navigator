@@ -1,0 +1,45 @@
+services:
+  kokoro:
+    image: ${KOKORO_IMAGE:-ghcr.io/remsky/kokoro-fastapi-cpu:latest}
+    ports:
+      - "${KOKORO_PORT:-8880}:8880"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8880/health', timeout=5).read()",
+        ]
+      interval: 30s
+      timeout: 5s
+      start_period: 60s
+      retries: 10
+
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    environment:
+      PHONEME_NAV_APP_ENV: production
+      PHONEME_NAV_BACKEND_HOST: 0.0.0.0
+      PHONEME_NAV_BACKEND_PORT: 8000
+      PHONEME_NAV_FRONTEND_ORIGIN: ${PHONEME_NAV_FRONTEND_ORIGIN:-http://localhost:8080}
+      PHONEME_NAV_KOKORO_BASE_URL: http://kokoro:8880
+      PHONEME_NAV_LOG_DIR: /tmp/phoneme-navigator-logs
+      PHONEME_NAV_CONSOLE_LOG_LEVEL: INFO
+    ports:
+      - "${BACKEND_PORT:-8000}:8000"
+    depends_on:
+      kokoro:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+    ports:
+      - "${FRONTEND_PORT:-8080}:80"
+    depends_on:
+      backend:
+        condition: service_healthy

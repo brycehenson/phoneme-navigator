@@ -20,6 +20,17 @@ class SpeakRequest(BaseModel):
     speed: float = Field(default=1.0, gt=0.0, le=3.0)
 
 
+class SpectrogramRequest(SpeakRequest):
+    """Input payload for speech spectrogram generation."""
+
+    window_ms: float = Field(default=25.0, ge=10.0, le=80.0)
+    hop_ms: float = Field(default=5.0, ge=1.0, le=40.0)
+    top_db: float = Field(default=80.0, ge=40.0, le=120.0)
+    max_frequency_hz: float = Field(default=8_000.0, ge=1_000.0, le=12_000.0)
+    smoothing: float = Field(default=0.75, ge=0.0, le=2.5)
+    trim_seconds: float = Field(default=0.3, ge=0.0, le=1.0)
+
+
 class NavigationRequest(BaseModel):
     """Input payload for rebuilding token navigation state."""
 

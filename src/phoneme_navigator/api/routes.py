@@ -11,6 +11,7 @@ from phoneme_navigator.api.dependencies import (
     get_app_settings,
     get_kokoro_client,
     get_phonemize_service,
+    get_spectrogram_service,
     get_synthesis_service,
 )
 from phoneme_navigator.clients.kokoro_client import KokoroClient, KokoroClientError
@@ -19,14 +20,17 @@ from phoneme_navigator.models.requests import (
     NavigationRequest,
     PhonemizeRequest,
     SpeakRequest,
+    SpectrogramRequest,
 )
 from phoneme_navigator.models.responses import (
     HealthResponse,
     NavigationResponse,
     PhonemizeResponse,
+    SpectrogramResponse,
     VoicesResponse,
 )
 from phoneme_navigator.services.phonemize_service import PhonemizeService
+from phoneme_navigator.services.spectrogram_service import SpectrogramService
 from phoneme_navigator.services.synthesis_service import SynthesisService
 
 router = APIRouter()
@@ -93,3 +97,29 @@ async def speak(
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
     return Response(content=audio_bytes, media_type="audio/wav")
+
+
+@router.post("/api/spectrogram", response_model=SpectrogramResponse)
+async def spectrogram(
+    request: SpectrogramRequest,
+    service: SpectrogramService = Depends(get_spectrogram_service),
+) -> SpectrogramResponse:
+    """Synthesize audio separately and return spectrogram data."""
+    try:
+        return await service.spectrogram(
+            phonemes=request.phonemes,
+            voice=request.voice,
+            speed=request.speed,
+            window_ms=request.window_ms,
+            hop_ms=request.hop_ms,
+            top_db=request.top_db,
+            max_frequency_hz=request.max_frequency_hz,
+            smoothing=request.smoothing,
+            trim_seconds=request.trim_seconds,
+        )
+    except KokoroClientError as exc:
+        logger.exception("Spectrogram synthesis request failed")
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    except ValueError as exc:
+        logger.exception("Spectrogram computation failed")
+        raise HTTPException(status_code=422, detail=str(exc)) from exc

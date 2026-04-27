@@ -61,7 +61,7 @@ MULTI_CHAR_TOKENS: list[str] = sorted(
 
 def normalize_phoneme_string(phonemes: str) -> str:
     """Normalize Kokoro phoneme aliases to IPA symbols used by the UI."""
-    return phonemes.replace(":", "ː").replace("'", "ˈ")
+    return phonemes.replace(":", "ː").replace("'", "ˈ").replace("ʤ", "dʒ")
 
 
 @dataclass(frozen=True, kw_only=True)
