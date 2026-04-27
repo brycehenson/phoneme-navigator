@@ -1,15 +1,17 @@
-"""Tests for python_template.utilities."""
+"""Tests for phoneme navigation utility helpers."""
 
-import pytest
-
-from python_template.utilities import calculate_percentage
-
-
-def test_calculate_percentage_returns_expected_value():
-    assert calculate_percentage(25, 100) == 25
-    assert calculate_percentage(1, 4) == 25
+from phoneme_navigator.domain.tokenization import (
+    classify_ipa_token,
+    normalize_phoneme_string,
+)
 
 
-def test_calculate_percentage_rejects_zero_whole():
-    with pytest.raises(ValueError):
-        calculate_percentage(1, 0)
+def test_normalize_phoneme_string_converts_kokoro_markers():
+    assert normalize_phoneme_string("d'i:tʤ") == "dˈiːtdʒ"
+
+
+def test_classify_ipa_token_returns_expected_coarse_class():
+    assert classify_ipa_token("ə") == "vowel"
+    assert classify_ipa_token("ˈ") == "stress"
+    assert classify_ipa_token(" ") == "separator"
+    assert classify_ipa_token("d") == "consonant"

@@ -41,12 +41,6 @@
     "cSpell.allowCompoundWords": true,
     // Import custom dictionaries with words like 'ODMR', 'qcstack'.
     "cSpell.customDictionaries": {
-        "physics": {
-            "name": "physics",
-            "path": "./.vscode/dictionary/physics.txt",
-            "scope": "workspace",
-            "addWords": true
-        },
         "misc": {
             "name": "misc",
             "path": "./.vscode/dictionary/misc.txt",
